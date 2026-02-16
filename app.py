@@ -10,6 +10,7 @@ from langchain_community.chat_message_histories import ChatMessageHistory
 from langchain_core.runnables.history import RunnableWithMessageHistory
 from langchain_core.runnables import RunnableLambda
 from langchain_core.messages import AIMessage, HumanMessage
+import wikipedia
 
 # --- 1. Herramienta Personalizada del Notebook ---
 @tool
