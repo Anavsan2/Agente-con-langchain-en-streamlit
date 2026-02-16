@@ -12,6 +12,8 @@ from langchain_core.runnables import RunnableLambda
 from langchain_core.messages import AIMessage, HumanMessage
 import wikipedia
 
+
+wikipedia.set_user_agent("MiAgenteLangchain/1.0 (https://github.com/tu-usuario/tu-repo; tu_correo@ejemplo.com)")
 # --- 1. Herramienta Personalizada del Notebook ---
 @tool
 def conchita_coins(input: float) -> float:
