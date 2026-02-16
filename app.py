@@ -1,66 +1,106 @@
-import os
 import streamlit as st
-from langchain_openai import ChatOpenAI
-from langchain.agents import AgentExecutor, create_tool_calling_agent
+from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain.tools import tool
 from langchain_community.tools import DuckDuckGoSearchRun
-# --- Nuevas importaciones para GitHub ---
-from langchain_community.agent_toolkits.github.toolkit import GitHubToolkit
-from langchain_community.utilities.github import GitHubAPIWrapper
+from langchain_community.tools.wikipedia.tool import WikipediaQueryRun
+from langchain_community.utilities import WikipediaAPIWrapper
+from langchain_classic.agents import AgentExecutor, create_tool_calling_agent
 from langchain_core.prompts import ChatPromptTemplate
+from langchain_community.chat_message_histories import ChatMessageHistory
+from langchain_core.runnables.history import RunnableWithMessageHistory
+from langchain_core.runnables import RunnableLambda
 from langchain_core.messages import AIMessage, HumanMessage
 
-st.set_page_config(page_title="Agente con GitHub", page_icon="🐙")
-st.title("Mi Agente con acceso a GitHub 🐙")
+# --- 1. Herramienta Personalizada del Notebook ---
+@tool
+def conchita_coins(input: float) -> float:
+    """Use this tool to convert USD to Conchita Academy coins"""
+    return 1.3*(float(input))
+
+# --- 2. Funciones de Memoria del Notebook ---
+if "store" not in st.session_state:
+    st.session_state.store = {}
+
+def get_session_history(session_id: str):
+    if session_id not in st.session_state.store:
+        st.session_state.store[session_id] = ChatMessageHistory()
+    return st.session_state.store[session_id]
+
+def ensure_string_output(agent_result: dict) -> dict:
+    output_value = agent_result.get('output')
+    if isinstance(output_value, list):
+        concatenated_text = ""
+        for item in output_value:
+            if isinstance(item, dict) and item.get('type') == 'text':
+                concatenated_text += item.get('text', '')
+            elif isinstance(item, str):
+                concatenated_text += item
+        agent_result['output'] = concatenated_text
+    elif not isinstance(output_value, str):
+        agent_result['output'] = str(output_value)
+    return agent_result
+
+# --- 3. Interfaz de Streamlit ---
+st.set_page_config(page_title="Agente Conchita EDEM", page_icon="🎓")
+st.title("Agente LangChain EDEM 🎓")
 
 st.sidebar.header("Configuración")
-openai_api_key = st.sidebar.text_input("OpenAI API Key", type="password")
-github_token = st.sidebar.text_input("GitHub Access Token", type="password") # Pide el token de GitHub
+google_api_key = st.sidebar.text_input("Google API Key", type="password")
 
 if "messages" not in st.session_state:
-    st.session_state["messages"] = [AIMessage(content="¡Hola! Puedo buscar en internet y leer tus repositorios de GitHub. ¿Qué hacemos hoy?")]
+    st.session_state["messages"] = [AIMessage(content="¡Hola! Puedo buscar en Wikipedia, DuckDuckGo, y convertir USD a Conchita coins. ¿En qué te ayudo?")]
 
 for msg in st.session_state.messages:
     role = "assistant" if isinstance(msg, AIMessage) else "user"
     st.chat_message(role).write(msg.content)
 
-if prompt := st.chat_input("Escribe tu pregunta..."):
+if prompt := st.chat_input("Escribe tu pregunta aquí..."):
     st.session_state.messages.append(HumanMessage(content=prompt))
     st.chat_message("user").write(prompt)
 
-    if not openai_api_key or not github_token:
-        st.info("Por favor, añade tus API Keys de OpenAI y GitHub en la barra lateral.")
+    if not google_api_key:
+        st.info("Por favor, añade tu Google API Key en la barra lateral para continuar.")
         st.stop()
 
-    # Configurar variable de entorno requerida por el Wrapper de LangChain
-    os.environ["GITHUB_PERSONAL_ACCESS_TOKEN"] = github_token
-
-    # --- Inicializar Herramientas de GitHub ---
-    github = GitHubAPIWrapper()
-    github_toolkit = GitHubToolkit.from_github_api_wrapper(github)
-    github_tools = github_toolkit.get_tools() # Esto trae herramientas como GetIssue, CreatePR, etc.
-
-    search_tool = DuckDuckGoSearchRun()
+    # --- 4. Lógica del Agente (basada en el Notebook) ---
+    # Modelo
+    chat = ChatGoogleGenerativeAI(model='gemini-2.5-flash', api_key=google_api_key)
     
-    # Juntamos todas las herramientas
-    tools = [search_tool] + github_tools
+    # Herramientas
+    search = DuckDuckGoSearchRun()
+    wikipedia = WikipediaQueryRun(api_wrapper=WikipediaAPIWrapper())
+    tools = [search, wikipedia, conchita_coins]
 
-    llm = ChatOpenAI(api_key=openai_api_key, model="gpt-3.5-turbo", temperature=0)
-
+    # Prompt
     prompt_template = ChatPromptTemplate.from_messages([
-        ("system", "Eres un asistente técnico. Puedes buscar en internet y usar la API de GitHub para revisar repositorios, issues y archivos."),
-        ("placeholder", "{chat_history}"),
+        ("system", "You are a helpful assistant. Based on user query and the chat history, look for information using DuckDuckGo Search and Wikipedia and then give the final answer"),
+        ("placeholder", "{history}"),
         ("human", "{input}"),
         ("placeholder", "{agent_scratchpad}"),
     ])
 
-    agent = create_tool_calling_agent(llm, tools, prompt_template)
+    # Creación del Agente usando langchain_classic
+    agent = create_tool_calling_agent(chat, tools, prompt_template)
     agent_executor = AgentExecutor(agent=agent, tools=tools, verbose=True)
 
+    # Añadiendo la memoria
+    agent_executor_with_formatted_output = agent_executor | RunnableLambda(ensure_string_output)
+    agent_with_history = RunnableWithMessageHistory(
+        agent_executor_with_formatted_output,
+        get_session_history,
+        input_messages_key="input",
+        history_messages_key="history",
+    )
+
+    # --- 5. Ejecución ---
     with st.chat_message("assistant"):
-        with st.spinner("Trabajando..."):
-            response = agent_executor.invoke({
-                "input": prompt,
-                "chat_history": st.session_state.messages[:-1]
-            })
-            st.write(response["output"])
-            st.session_state.messages.append(AIMessage(content=response["output"]))
+        with st.spinner("Procesando..."):
+            # Usamos un session_id fijo para este usuario en Streamlit
+            response = agent_with_history.invoke(
+                {"input": prompt},
+                config={"configurable": {"session_id": "sess1"}}
+            )
+            
+            output_text = response["output"]
+            st.write(output_text)
+            st.session_state.messages.append(AIMessage(content=output_text))
