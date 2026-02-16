@@ -1,4 +1,6 @@
 import streamlit as st
+import wikipedia
+from datetime import datetime
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain.tools import tool
 from langchain_community.tools import DuckDuckGoSearchRun
@@ -10,17 +12,17 @@ from langchain_community.chat_message_histories import ChatMessageHistory
 from langchain_core.runnables.history import RunnableWithMessageHistory
 from langchain_core.runnables import RunnableLambda
 from langchain_core.messages import AIMessage, HumanMessage
-import wikipedia
 
+# --- CONFIGURACIÓN PARA EVITAR BLOQUEOS DE WIKIPEDIA ---
+wikipedia.set_user_agent("AgenteStreamlitEDEM/1.0 (https://github.com/tu-usuario/tu-repo; alumno@edem.es)")
 
-wikipedia.set_user_agent("MiAgenteLangchain/1.0 (https://github.com/tu-usuario/tu-repo; tu_correo@ejemplo.com)")
-# --- 1. Herramienta Personalizada del Notebook ---
+# --- 1. HERRAMIENTA PERSONALIZADA ---
 @tool
 def conchita_coins(input: float) -> float:
     """Use this tool to convert USD to Conchita Academy coins"""
-    return 1.3*(float(input))
+    return 1.3 * float(input)
 
-# --- 2. Funciones de Memoria del Notebook ---
+# --- 2. FUNCIONES DE MEMORIA ---
 if "store" not in st.session_state:
     st.session_state.store = {}
 
@@ -43,21 +45,26 @@ def ensure_string_output(agent_result: dict) -> dict:
         agent_result['output'] = str(output_value)
     return agent_result
 
-# --- 3. Interfaz de Streamlit ---
-st.set_page_config(page_title="Agente Conchita EDEM", page_icon="🎓")
-st.title("Agente LangChain EDEM 🎓")
+# --- 3. INTERFAZ DE STREAMLIT ---
+st.set_page_config(page_title="Agente Inteligente", page_icon="🤖")
+st.title("Mi Agente LangChain 🤖")
 
 st.sidebar.header("Configuración")
 google_api_key = st.sidebar.text_input("Google API Key", type="password")
 
 if "messages" not in st.session_state:
-    st.session_state["messages"] = [AIMessage(content="¡Hola! Puedo buscar en Wikipedia, DuckDuckGo, y convertir USD a Conchita coins. ¿En qué te ayudo?")]
+    st.session_state["messages"] = [
+        AIMessage(content="¡Hola! Puedo buscar en internet, en Wikipedia y convertir USD a Conchita coins. ¿En qué te ayudo hoy?")
+    ]
 
+# Mostrar historial de mensajes en la pantalla
 for msg in st.session_state.messages:
     role = "assistant" if isinstance(msg, AIMessage) else "user"
     st.chat_message(role).write(msg.content)
 
+# --- 4. INTERACCIÓN Y LÓGICA DEL AGENTE ---
 if prompt := st.chat_input("Escribe tu pregunta aquí..."):
+    # Guardar y mostrar el mensaje del usuario
     st.session_state.messages.append(HumanMessage(content=prompt))
     st.chat_message("user").write(prompt)
 
@@ -65,28 +72,31 @@ if prompt := st.chat_input("Escribe tu pregunta aquí..."):
         st.info("Por favor, añade tu Google API Key en la barra lateral para continuar.")
         st.stop()
 
-    # --- 4. Lógica del Agente (basada en el Notebook) ---
-    # Modelo
+    # Inicializar Modelo y Herramientas
     chat = ChatGoogleGenerativeAI(model='gemini-2.5-flash', api_key=google_api_key)
-    
-    # Herramientas
     search = DuckDuckGoSearchRun()
-    wikipedia = WikipediaQueryRun(api_wrapper=WikipediaAPIWrapper())
-    tools = [search, wikipedia, conchita_coins]
+    wiki_tool = WikipediaQueryRun(api_wrapper=WikipediaAPIWrapper())
+    tools = [search, wiki_tool, conchita_coins]
 
-    # Prompt
+    # Obtener fecha actual para evitar "ceguera temporal"
+    fecha_actual = datetime.now().strftime("%A, %d de %B de %Y")
+
+    # Crear el Prompt con inyección de contexto
     prompt_template = ChatPromptTemplate.from_messages([
-        ("system", "You are a helpful assistant. Based on user query and the chat history, look for information using DuckDuckGo Search and Wikipedia and then give the final answer"),
+        ("system", f"""Eres un asistente útil, experto y muy persistente. 
+        Hoy es {fecha_actual}. Usa esta fecha exacta como tu referencia en el tiempo para saber qué eventos son pasados, actuales o futuros (próximos).
+        Si usas DuckDuckGo y no encuentras la respuesta a la primera, vuelve a buscar usando términos o palabras clave diferentes antes de rendirte.
+        Basado en la consulta del usuario y el historial de chat, busca la información necesaria y da una respuesta final clara y directa."""),
         ("placeholder", "{history}"),
         ("human", "{input}"),
         ("placeholder", "{agent_scratchpad}"),
     ])
 
-    # Creación del Agente usando langchain_classic
+    # Ensamblar el Agente
     agent = create_tool_calling_agent(chat, tools, prompt_template)
     agent_executor = AgentExecutor(agent=agent, tools=tools, verbose=True)
 
-    # Añadiendo la memoria
+    # Conectar el Agente con la Memoria
     agent_executor_with_formatted_output = agent_executor | RunnableLambda(ensure_string_output)
     agent_with_history = RunnableWithMessageHistory(
         agent_executor_with_formatted_output,
@@ -95,13 +105,12 @@ if prompt := st.chat_input("Escribe tu pregunta aquí..."):
         history_messages_key="history",
     )
 
-    # --- 5. Ejecución ---
+    # Ejecutar y mostrar respuesta
     with st.chat_message("assistant"):
-        with st.spinner("Procesando..."):
-            # Usamos un session_id fijo para este usuario en Streamlit
+        with st.spinner("Pensando e investigando..."):
             response = agent_with_history.invoke(
                 {"input": prompt},
-                config={"configurable": {"session_id": "sess1"}}
+                config={"configurable": {"session_id": "sesion_unica_usuario"}}
             )
             
             output_text = response["output"]
