@@ -1,6 +1,7 @@
 streamlit
-langchain
-langchain-openai
-langchain-community
+langchain>=0.2.0
+langchain-core>=0.2.0
+langchain-openai>=0.1.3
+langchain-community>=0.2.0
 duckduckgo-search
 pygithub
