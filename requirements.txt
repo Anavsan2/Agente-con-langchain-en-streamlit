@@ -4,4 +4,5 @@ langchain-classic
 langchain-google-genai
 langchain-community
 duckduckgo-search
+ddgs
 wikipedia
